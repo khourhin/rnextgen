@@ -101,14 +101,14 @@ export_results = function(res, species='', prefix='', orderCol=''){
 
 pairwise_comparison = function(dds, comps, meta_col_name){
     ## Perform all comparison specified in comps (a list of size 2
-    ## vectors). Using the groups specified in metadata table column 'meta_col'
+    ## lists). Using the groups specified in metadata table column 'meta_col'
     
     compa_res = list()
 
     for (comp in comps){
-        compa_name = paste(c(comp[1], comp[2]), collapse="_VS_")
+        compa_name = paste(c(comp[[1]], comp[[2]]), collapse="_VS_")
         message(compa_name)
-        res_i = results(dds, contrast=c(meta_col_name, comp[1], comp[2]), alpha=0.05, parallel=TRUE)
+        res_i = results(dds, contrast=c(meta_col_name, comp[[1]], comp[[2]]), alpha=0.05, parallel=TRUE)
         summary(res_i)
         
         compa_res[[compa_name]] = res_i
