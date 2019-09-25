@@ -127,16 +127,19 @@ export_pairwise = function(res, species='', prefix=''){
 }
 
 volcano_plot = function(res, title=''){
-    ## WARNING ##
-    ## FIXME: The comparison should be specified explicitely !!!!
     ## From DESEQ2 result, draw a volcano plot
-    warning("Remember that results object are oriented depending on the contrast defined when using results() function")
+    message("Comparison made:", strsplit(mcols(res)$description[[2]], ": ")[[1]][2])
+
+    ## Remove lines with at least one "NA"
+    res = as.data.frame(res)
+    res = res[complete.cases(res), ]
+    
     x_lim = max(abs(min(res$log2FoldChange)), abs(max(res$log2FoldChange)))
     
     with(res, plot(log2FoldChange, -log10(padj), pch=20, main=title, xlim=c(-x_lim, x_lim), col="grey"))
     with(subset(res, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="orange"))
-    with(subset(res, padj<.05 & (log2FoldChange) < 1), points(log2FoldChange, -log10(padj), pch=20, col="dodgerblue"))
-    with(subset(res, padj<.05 & (log2FoldChange) > 1), points(log2FoldChange, -log10(padj), pch=20, col="firebrick"))
+    with(subset(res, padj<.05 & (log2FoldChange) < 0), points(log2FoldChange, -log10(padj), pch=20, col="dodgerblue"))
+    with(subset(res, padj<.05 & (log2FoldChange) > 0), points(log2FoldChange, -log10(padj), pch=20, col="firebrick"))
 }
 
 
