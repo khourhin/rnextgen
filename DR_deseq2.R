@@ -4,21 +4,12 @@ library(ggplot2)
 library(ggrepel)
 library(BiocParallel)
 
-
-### LIMITATIONS
-## For now, only getting human hg19 and mm38 annotations
-
 ## DEFAULTS
 ## Normalized counts using counts function in DESEQ (could use rlog and vst as well)
 
-## IMPROVEMENTS
-## - ucsc link ?
-## For pairwise export: currently annotation is run for each comparison. Could be launched only once
-
-
 ## USING 10 threads by default
+## Used only for DESeq wrapper ()
 register(MulticoreParam(10))
-
 
 check_counts_meta_tables = function(counts, meta){
     # Verify rownames in meta are the same as colnames in counts
@@ -30,27 +21,42 @@ check_counts_meta_tables = function(counts, meta){
     }
 }
 
-
 make_DR = function(counts, meta, design){
 
     check_counts_meta_tables(counts, meta)
-    
+
     dds = DESeqDataSetFromMatrix(countData=counts, colData=meta, design=design)
+    dds = DESeq(dds, parallel=TRUE)
 
-    ## Filter out features with 1 or less read mapped in total (no need of filtering so much as in edgeR)
-    dds <- dds[ rowSums(counts(dds)) > 1, ]
-
-    ## Set factors levels of reference for later comparison
-                                        #dds$group <- relevel(dds$group4, ref=group_ref)
-
-    dds = DESeq(dds, betaPrior=TRUE, parallel=TRUE)
+    # All this is wrapped in DESeq function now
+    #dds <- estimateSizeFactors(dds)
+    #dds <- estimateDispersions(dds)
+    #dds <- nbinomWaldTest(dds)
+    
     return(dds)
+}
+
+pairwise_comparison = function(dds, comps, meta_col_name){
+    ## Perform all comparison specified in comps (a list of size 2
+    ## lists). Using the groups specified in metadata table column 'meta_col'
+    
+    compa_res = list()
+
+    for (comp in comps){
+        compa_name = paste(c(comp[[1]], comp[[2]]), collapse="_VS_")
+        message(compa_name)
+        res_i = results(dds, contrast=c(meta_col_name, comp[[1]], comp[[2]]), alpha=0.05, parallel=TRUE, independentFiltering=TRUE, cooksCutoff=TRUE)
+        summary(res_i)
+        
+        compa_res[[compa_name]] = res_i
+    }
+    return(compa_res)
 }
 
 
 export_counts = function(dds, prefix='', species=''){
 
-    # Export both raw and VSD transformed counts
+    # Export both raw and VST transformed counts
 
     ## rlog is accounting for lib size and apparently vsd too (see deseq2 manual)
     ## rlog = rlog(dds, blind=FALSE)
@@ -77,7 +83,6 @@ export_counts = function(dds, prefix='', species=''){
     return(vst_counts)
 }
 
-
 export_results = function(res, species='', prefix='', orderCol=''){
     ## Export the DE results table
 
@@ -98,84 +103,12 @@ export_results = function(res, species='', prefix='', orderCol=''){
     return(res)
 }
 
-
-pairwise_comparison = function(dds, comps, meta_col_name){
-    ## Perform all comparison specified in comps (a list of size 2
-    ## lists). Using the groups specified in metadata table column 'meta_col'
-    
-    compa_res = list()
-
-    for (comp in comps){
-        compa_name = paste(c(comp[[1]], comp[[2]]), collapse="_VS_")
-        message(compa_name)
-        res_i = results(dds, contrast=c(meta_col_name, comp[[1]], comp[[2]]), alpha=0.05, parallel=TRUE)
-        summary(res_i)
-        
-        compa_res[[compa_name]] = res_i
-    }
-    return(compa_res)
-}
-
-
-export_pairwise = function(res, species='', prefix=''){
+export_pairwise = function(res, species=''){
     ## For pairwise comparisons
     for (compa in names(res)){
-        export_results(res[[compa]], species=species, prefix=paste(prefix, '_', compa, sep=''))
+        export_results(res[[compa]], species=species, prefix=compa)
         #tmp_res = merge(annot, as.data.frame(res[[compa]]), by=0, all.y=TRUE)
         #write.csv(tmp_res, file=paste(prefix, '_',  compa, '.csv', sep=''), row.names=FALSE)
     }
 }
 
-volcano_plot = function(res, title=''){
-    ## From DESEQ2 result, draw a volcano plot
-    message("Comparison made:", strsplit(mcols(res)$description[[2]], ": ")[[1]][2])
-
-    ## Remove lines with at least one "NA"
-    res = as.data.frame(res)
-    res = res[complete.cases(res), ]
-    
-    x_lim = max(abs(min(res$log2FoldChange)), abs(max(res$log2FoldChange)))
-    
-    with(res, plot(log2FoldChange, -log10(padj), pch=20, main=title, xlim=c(-x_lim, x_lim), col="grey"))
-    with(subset(res, padj<.05 ), points(log2FoldChange, -log10(padj), pch=20, col="orange"))
-    with(subset(res, padj<.05 & (log2FoldChange) < 0), points(log2FoldChange, -log10(padj), pch=20, col="dodgerblue"))
-    with(subset(res, padj<.05 & (log2FoldChange) > 0), points(log2FoldChange, -log10(padj), pch=20, col="firebrick"))
-}
-
-
-annotate = function(df, species=''){
-    ## From a dataframe with ensembl identifiers as rownames get the
-    ## corresponding annotation from bioMart
-
-    external_gene_name = "external_gene_name"
-    
-    ## Select database and dataset
-    if (species == 'human'){
-        ensembl = useMart(biomart="ENSEMBL_MART_ENSEMBL", host="grch37.ensembl.org", path="/biomart/martservice", dataset="hsapiens_gene_ensembl")
-    }
-    else if (species == 'mouse'){
-        ensembl = useMart(biomart="ensembl",
-                          dataset="mmusculus_gene_ensembl")
-    }
-    else if (species == 'mm9'){
-        ensembl = useMart(biomart="ENSEMBL_MART_ENSEMBL", host="http://May2012.archive.ensembl.org",
-                          dataset='mmusculus_gene_ensembl')
-
-        ## Ensembl changed external_gene_id to external_gene_name
-        external_gene_name = "external_gene_id"
-        
-    }
-    else stop('Unavailable or No species selected for annotation.')
-
-    ## Edit to fetch the correct database
-    annot <- getBM(attributes = c("ensembl_gene_id", 
-                                  external_gene_name,
-                                  "chromosome_name",
-                                  "start_position", 
-                                  "end_position", 
-                                  "strand"), filter="ensembl_gene_id", values=rownames(counts),mart=ensembl)
-
-    rownames(annot) = annot$ensembl_gene_id
-    annot = annot[,-1]
-    return(annot)
-}
