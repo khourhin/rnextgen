@@ -1,7 +1,5 @@
 library(DESeq2)
 library(biomaRt)
-library(ggplot2)
-library(ggrepel)
 library(BiocParallel)
 
 ## DEFAULTS
@@ -28,17 +26,12 @@ make_DR = function(counts, meta, design){
     dds = DESeqDataSetFromMatrix(countData=counts, colData=meta, design=design)
     dds = DESeq(dds, parallel=TRUE)
 
-    # All this is wrapped in DESeq function now
-    #dds <- estimateSizeFactors(dds)
-    #dds <- estimateDispersions(dds)
-    #dds <- nbinomWaldTest(dds)
-    
     return(dds)
 }
 
 pairwise_comparison = function(dds, comps, meta_col_name){
     ## Perform all comparison specified in comps (a list of size 2
-    ## lists). Using the groups specified in metadata table column 'meta_col'
+    ## lists). Using the groups specified in metadata table column 'meta_col_name'
     
     compa_res = list()
 
@@ -54,45 +47,22 @@ pairwise_comparison = function(dds, comps, meta_col_name){
 }
 
 
-export_counts = function(dds, prefix='', species=''){
+export_counts = function(dds, prefix=''){
 
     # Export both raw and VST transformed counts
 
-    ## rlog is accounting for lib size and apparently vsd too (see deseq2 manual)
+    ## rlog is accounting for lib size and apparently vst too (see deseq2 manual)
     ## rlog = rlog(dds, blind=FALSE)
-    ## vsd = varianceStabilizingTransformation(dds, blind=FALSE)
 
     counts = counts(dds)
     vst_counts = assay(vst(dds, blind=FALSE))
 
     write.csv(counts, paste0(prefix, 'counts_raw.csv'))
     write.csv(vst_counts, paste0(prefix, 'counts_vst_norm.csv'))
-    
-    if (species != ''){
-        annot = annotate(counts, species=species)
-
-        counts = merge(annot, counts, by=0, all.y=TRUE)
-        vst_counts = merge(annot, vst_counts, by=0, all.y=TRUE)
-
-        write.csv(counts, paste0(prefix, 'counts_raw_annot.csv'))
-        write.csv(vst_counts, paste0(prefix, 'counts_vst_norm_annot.csv'))
-    }
-    
-    rownames(vst_counts) = vst_counts$Row.names
-    vst_counts = subset(vst_counts, select= -Row.names)
-    return(vst_counts)
 }
 
-export_results = function(res, species='', prefix='', orderCol=''){
+export_results = function(res, prefix='', orderCol='padj'){
     ## Export the DE results table
-
-    #with annotation if species provided
-    if (species != ''){
-        annot = annotate(as.data.frame(res), species=species)
-        res =  merge(annot,as.data.frame(res), by=0, all.y=TRUE)
-        rownames(res) = res[,1]
-        res = res[,-1]
-    }
 
     # Sort by the column specified
     if (orderCol != ''){
@@ -103,12 +73,10 @@ export_results = function(res, species='', prefix='', orderCol=''){
     return(res)
 }
 
-export_pairwise = function(res, species=''){
+export_pairwise = function(res, orderCol='padj'){
     ## For pairwise comparisons
     for (compa in names(res)){
-        export_results(res[[compa]], species=species, prefix=compa)
-        #tmp_res = merge(annot, as.data.frame(res[[compa]]), by=0, all.y=TRUE)
-        #write.csv(tmp_res, file=paste(prefix, '_',  compa, '.csv', sep=''), row.names=FALSE)
+        export_results(res[[compa]], prefix=compa, orderCol=orderCol)
     }
 }
 
